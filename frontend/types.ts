@@ -1,24 +1,28 @@
-export type StatusKey = "green" | "yellow" | "red" | "unknown";
+export type SignalKey =
+  | "tailwind"
+  | "headwind"
+  | "risk_on"
+  | "risk_off"
+  | "normal"
+  | "warning"
+  | "stress"
+  | "neutral"
+  | "unknown";
 
 export type Indicator = {
   indicator_key: string;
   label: string;
-  status: StatusKey;
-  status_label: string;
+  signal: SignalKey;
+  signal_label: string;
+  value: number | null;
+  change_abs: number | null;
+  change_pct: number | null;
   value_text: string;
   change_text: string;
-  comment: string;
   reason: string;
   source_name: string;
   source_url: string;
   as_of: string;
-};
-
-export type LinkItem = {
-  title: string;
-  source_name: string;
-  source_url: string;
-  note: string;
 };
 
 export type ReferenceLink = {
@@ -28,18 +32,20 @@ export type ReferenceLink = {
 };
 
 export type DashboardPayload = {
+  schema_version: 2;
   updated_at_jst: string;
   summary: {
-    overall_status: StatusKey;
-    overall_label: string;
-    caution_level: string;
-    headline: string;
-    important_event_summary: string;
+    gold_value_text: string;
+    gold_change_text: string;
+    market_mode: {
+      key: string;
+      label: string;
+      description: string;
+    };
+    primary_factor: string;
+    warning_signals: string[];
   };
   indicators: Indicator[];
-  economic_events: LinkItem[];
-  geo_news: LinkItem[];
   reference_links: ReferenceLink[];
   disclaimer: string;
 };
-

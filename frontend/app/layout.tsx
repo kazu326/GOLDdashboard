@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GOLD Market Brief",
-  description: "GOLD環境認識ダッシュボード"
+  title: "GOLD数値監視ダッシュボード",
+  description: "GOLDに影響する主要7指標と市場モードを確認するダッシュボード"
 };
 
 export default function RootLayout({
@@ -17,4 +17,3 @@ export default function RootLayout({
     </html>
   );
 }
-

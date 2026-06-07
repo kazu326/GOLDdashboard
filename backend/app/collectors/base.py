@@ -25,10 +25,9 @@ class ProviderAdapter(ABC):
                 label=self.label,
                 source_name=self.provider_name,
                 source_url=self.source_url,
-                comment="取得できませんでした。原典を確認してください。",
+                comment="取得できませんでした。取得元を確認してください。",
             )
 
     @abstractmethod
     def fetch(self) -> NormalizedData:
         raise NotImplementedError
-
