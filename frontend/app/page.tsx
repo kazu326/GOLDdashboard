@@ -1,9 +1,11 @@
-import { DashboardPayload, SignalKey } from "../types";
+import { DashboardPayload, FreshnessStatus, SignalKey } from "../types";
+import ThemeToggle from "./theme-toggle";
+import VisualModeToggle from "./visual-mode-toggle";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 const fallbackPayload: DashboardPayload = {
-  schema_version: 2,
+  schema_version: 3,
   updated_at_jst: "未取得",
   summary: {
     gold_value_text: "データ不足",
@@ -14,7 +16,13 @@ const fallbackPayload: DashboardPayload = {
       description: "バックエンドを起動してください。"
     },
     primary_factor: "市場モード判定に必要なデータを取得できません。",
-    warning_signals: ["API接続を確認してください"]
+    warning_signals: ["API接続を確認してください"],
+    data_freshness: {
+      label: "DATA FRESHNESS",
+      summary_text: "0指標中 0指標が古い可能性",
+      market_mode_assessment: "データ不足",
+      counts: { fresh: 0, caution: 0, stale: 0, excluded: 0 }
+    }
   },
   indicators: [],
   reference_links: [],
@@ -43,11 +51,20 @@ const signalClass: Record<SignalKey, string> = {
   unknown: "signalUnknown"
 };
 
+const freshnessClass: Record<FreshnessStatus, string> = {
+  fresh: "freshnessFresh",
+  caution: "freshnessCaution",
+  stale: "freshnessStale",
+  excluded: "freshnessExcluded"
+};
+
 export default async function Home() {
   const data = await getDashboard();
   const modeClass =
     data.summary.market_mode.key === "correlation_break"
       ? "modeAlert"
+      : data.summary.market_mode.key === "risk_off_dollar_buying"
+        ? "modeWarning"
       : data.summary.market_mode.key === "unknown"
         ? "modeUnknown"
         : "modeNormal";
@@ -55,15 +72,26 @@ export default async function Home() {
   return (
     <main className="pageShell">
       <section className="hero">
-        <div>
-          <p className="eyebrow">GOLD MARKET MONITOR</p>
-          <h1>GOLD数値監視ダッシュボード</h1>
-          <p className="updated">最終更新: {data.updated_at_jst}</p>
+        <div className="heroTitleRow">
+          <div>
+            <p className="eyebrow">GOLD MARKET MONITOR</p>
+            <h1>GOLD数値監視ダッシュボード</h1>
+            <p className="updated">最終更新: {data.updated_at_jst}</p>
+          </div>
+          <div className="heroControls">
+            <ThemeToggle />
+            <VisualModeToggle />
+          </div>
         </div>
         <div className="goldQuote">
           <span>GOLD現在値</span>
           <strong>{data.summary.gold_value_text}</strong>
           <small>{data.summary.gold_change_text}</small>
+        </div>
+        <div className="freshnessPanel">
+          <span>{data.summary.data_freshness.label}</span>
+          <strong>{data.summary.data_freshness.summary_text}</strong>
+          <small>相場モード判定: {data.summary.data_freshness.market_mode_assessment}</small>
         </div>
       </section>
 
@@ -93,7 +121,7 @@ export default async function Home() {
 
       <section className="cardGrid" aria-label="主要7指標">
         {data.indicators.map((item) => (
-          <article className="metricCard" key={item.indicator_key}>
+          <article className={`metricCard ${item.freshness_status === "excluded" ? "metricExcluded" : ""}`} key={item.indicator_key}>
             <div className="cardTop">
               <h3>{item.label}</h3>
               <span className={`signalBadge ${signalClass[item.signal]}`}>{item.signal_label}</span>
@@ -101,8 +129,26 @@ export default async function Home() {
             <p className="valueText">{item.value_text}</p>
             <p className="changeText">{item.change_text}</p>
             <p className="reasonText">{item.reason}</p>
+            <dl className="freshnessMeta">
+              <div>
+                <dt>データ日付</dt>
+                <dd>{item.data_date}</dd>
+              </div>
+              <div>
+                <dt>取得時刻</dt>
+                <dd>{item.fetched_at || "未取得"}</dd>
+              </div>
+              <div>
+                <dt>鮮度</dt>
+                <dd className={freshnessClass[item.freshness_status]}>{item.freshness_label}</dd>
+              </div>
+              <div>
+                <dt>判定利用</dt>
+                <dd>{item.market_mode_usage}</dd>
+              </div>
+            </dl>
             <div className="cardFooter">
-              <span>{item.as_of}</span>
+              <span>{item.source_series}</span>
               <a href={item.source_url} target="_blank" rel="noreferrer">{item.source_name}</a>
             </div>
           </article>

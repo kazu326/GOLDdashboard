@@ -21,6 +21,10 @@ class NormalizedData:
     change_abs: float | None = None
     change_pct: float | None = None
     comment: str = ""
+    source_series: str = ""
+    fetched_at: str = ""
+    freshness_status: str = "fresh"
+    used_in_market_mode: bool = True
 
     @property
     def is_unknown(self) -> bool:
@@ -44,8 +48,10 @@ def unknown_data(
         source_url=source_url,
         quality="unknown",
         comment=comment,
+        source_series=source_name,
+        freshness_status="excluded",
+        used_in_market_mode=False,
     )
 
 
 DashboardPayload = dict[str, Any]
-

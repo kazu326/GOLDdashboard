@@ -66,6 +66,7 @@ class FredSeriesAdapter(ProviderAdapter):
             quality="ok",
             change_abs=change_abs,
             change_pct=change_pct,
+            source_series=self.series_id,
         )
 
 
@@ -121,6 +122,7 @@ class AlphaVantageGoldAdapter(ProviderAdapter):
             quality="ok",
             change_abs=change_abs,
             change_pct=change_pct,
+            source_series="XAU",
         )
 
 
@@ -157,6 +159,7 @@ class FmpQuoteAdapter(ProviderAdapter):
             quality="ok",
             change_abs=_float_or_none(row.get("change")),
             change_pct=_float_or_none(row.get("changesPercentage")),
+            source_series=self.symbol,
         )
 
 
@@ -175,6 +178,7 @@ def adapter_groups() -> dict[str, list[ProviderAdapter]]:
         ],
         "sp500": [
             FmpQuoteAdapter("sp500", "S&P500", "^GSPC", ""),
+            FmpQuoteAdapter("sp500", "S&P500 ETF SPY", "SPY", ""),
             FredSeriesAdapter("sp500", "S&P500", "SP500", ""),
         ],
         "vix": [FredSeriesAdapter("vix", "VIX", "VIXCLS", "")],

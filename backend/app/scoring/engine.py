@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.freshness import FRESHNESS_LABELS, usage_label
 
 
 SIGNAL_LABELS = {
@@ -57,6 +59,8 @@ def score_indicator(row: dict) -> dict:
     change_abs = row.get("change_abs")
     change_pct = row.get("change_pct")
     unit = row.get("unit") or ""
+    used_in_market_mode = bool(row.get("used_in_market_mode", True))
+    freshness_status = row.get("freshness_status") or "fresh"
 
     if row.get("quality") == "unknown" or value is None:
         signal, reason = "unknown", "取得元から有効なデータを取得できませんでした。"
@@ -96,50 +100,91 @@ def score_indicator(row: dict) -> dict:
         "change_text": _fmt_change(change_abs, change_pct, unit),
         "reason": reason,
         "source_name": row["source_name"],
+        "source_series": row.get("source_series") or row["source_name"],
         "source_url": row["source_url"],
         "as_of": row["as_of"],
+        "data_date": row["as_of"],
+        "fetched_at": row.get("fetched_at") or row.get("created_at", ""),
+        "freshness_status": freshness_status,
+        "freshness_label": FRESHNESS_LABELS.get(freshness_status, freshness_status),
+        "used_in_market_mode": used_in_market_mode,
+        "market_mode_usage": usage_label(freshness_status, used_in_market_mode),
     }
 
 
 def detect_market_mode(rows: dict[str, dict]) -> dict:
+    rows = {key: row for key, row in rows.items() if row.get("used_in_market_mode", True)}
     changes = {key: row.get("change_pct") for key, row in rows.items()}
-    required = ("gold", "real_rate", "dxy", "sp500", "vix")
-    if any(key not in rows or changes.get(key) is None for key in required):
+
+    def has_changes(*keys: str) -> bool:
+        return all(key in rows and changes.get(key) is not None for key in keys)
+
+    def change(key: str) -> float:
+        return cast(float, changes[key])
+
+    if not has_changes("gold", "dxy", "vix"):
+        core_data_missing = True
+    else:
+        core_data_missing = False
+
+    if has_changes("gold", "dxy", "vix"):
+        gold = change("gold")
+        dxy = change("dxy")
+        vix = change("vix")
+        if gold > 0 and dxy > 0 and vix > 0:
+            return {
+                "key": "correlation_break",
+                "label": "相関ブレイク警戒",
+                "description": "GOLD・DXY・VIXが同時上昇。通常のドル高とGOLD安の関係から外れています。",
+            }
+        if gold < 0 and dxy > 0 and vix > 0:
+            return {
+                "key": "risk_off_dollar_buying",
+                "label": "リスクオフのドル買い優勢",
+                "description": (
+                    "市場ストレスは上昇していますが、GOLDは下落し、DXYが上昇しています。"
+                    "有事の金買いではなく、ドル買い・現金化需要が優勢な状態です。"
+                    "GOLDはドル高や高めの実質金利に押されている可能性があります。"
+                ),
+            }
+
+    if has_changes("gold", "real_rate", "dxy"):
+        gold = change("gold")
+        real_rate = change("real_rate")
+        dxy = change("dxy")
+        if gold > 0 and real_rate < 0 and dxy < 0:
+            return {
+                "key": "normal_gold_tailwind",
+                "label": "通常の金利低下によるGOLD追い風",
+                "description": "実質金利低下とドル安がGOLD上昇を支えています。",
+            }
+
+    if has_changes("real_rate", "dxy"):
+        real_rate = change("real_rate")
+        dxy = change("dxy")
+        if real_rate > 0 and dxy > 0:
+            return {
+                "key": "gold_headwind",
+                "label": "金利・ドル高によるGOLD向かい風",
+                "description": "実質金利上昇とドル高がGOLDの上値を抑えやすい環境です。",
+            }
+
+    if has_changes("gold", "sp500", "vix"):
+        gold = change("gold")
+        sp500 = change("sp500")
+        vix = change("vix")
+        if gold > 0 and sp500 < 0 and vix > 0:
+            return {
+                "key": "risk_off_gold_buying",
+                "label": "リスクオフ買いの可能性",
+                "description": "株安とVIX上昇を伴うGOLD上昇です。",
+            }
+
+    if core_data_missing:
         return {
             "key": "unknown",
             "label": "データ不足",
             "description": "市場モード判定に必要な前日比が不足しています。",
-        }
-
-    gold = changes["gold"]
-    real_rate = changes["real_rate"]
-    dxy = changes["dxy"]
-    sp500 = changes["sp500"]
-    vix = changes["vix"]
-
-    if gold > 0 and dxy > 0 and vix > 0:
-        return {
-            "key": "correlation_break",
-            "label": "相関ブレイク警戒",
-            "description": "GOLD・DXY・VIXが同時上昇。通常のドル高とGOLD安の関係から外れています。",
-        }
-    if gold > 0 and real_rate < 0 and dxy < 0:
-        return {
-            "key": "normal_gold_tailwind",
-            "label": "通常の金利低下によるGOLD追い風",
-            "description": "実質金利低下とドル安がGOLD上昇を支えています。",
-        }
-    if real_rate > 0 and dxy > 0:
-        return {
-            "key": "gold_headwind",
-            "label": "金利・ドル高によるGOLD向かい風",
-            "description": "実質金利上昇とドル高がGOLDの上値を抑えやすい環境です。",
-        }
-    if gold > 0 and sp500 < 0 and vix > 0:
-        return {
-            "key": "risk_off_gold_buying",
-            "label": "リスクオフ買いの可能性",
-            "description": "株安とVIX上昇を伴うGOLD上昇です。",
         }
     return {"key": "neutral", "label": "中立", "description": "明確な市場モードは検出されていません。"}
 
@@ -148,13 +193,16 @@ def build_dashboard_payload(market_rows: list[dict]) -> tuple[dict, list[dict]]:
     by_raw_key = {row["indicator_key"]: row for row in market_rows}
     indicators = [score_indicator(by_raw_key[key]) for key in INDICATOR_ORDER if key in by_raw_key]
     by_key = {row["indicator_key"]: row for row in indicators}
-    mode = detect_market_mode(by_key)
+    mode_rows = {key: row for key, row in by_key.items() if row["used_in_market_mode"]}
+    mode = detect_market_mode(mode_rows)
     gold = by_key.get("gold", {})
     vix = by_key.get("vix", {})
 
     warnings = []
     if mode["key"] == "correlation_break":
         warnings.append("GOLD・DXY・VIXの相関ブレイク")
+    if mode["key"] == "risk_off_dollar_buying":
+        warnings.append("リスクオフ下のドル買い優勢")
     if vix.get("signal") == "stress":
         warnings.append("VIX 30以上: 強い市場ストレス")
     elif vix.get("signal") == "warning":
@@ -162,10 +210,29 @@ def build_dashboard_payload(market_rows: list[dict]) -> tuple[dict, list[dict]]:
     unknown_count = sum(row["signal"] == "unknown" for row in indicators)
     if unknown_count:
         warnings.append(f"{unknown_count}指標がデータ不足")
+    stale_or_excluded = [row for row in indicators if row["freshness_status"] in {"stale", "excluded"}]
+    if stale_or_excluded:
+        warnings.append(f"{len(stale_or_excluded)}指標が判定から除外または参考扱い")
+    sp500 = by_key.get("sp500")
+    if sp500 and sp500["freshness_status"] in {"stale", "excluded"}:
+        warnings.append("S&P500データが古いため、リスクオン/リスクオフ判定は参考扱い")
+
+    freshness_counts = {
+        status: sum(row["freshness_status"] == status for row in indicators)
+        for status in ("fresh", "caution", "stale", "excluded")
+    }
+    old_count = freshness_counts["caution"] + freshness_counts["stale"] + freshness_counts["excluded"]
+    mode_assessment = "通常利用"
+    if freshness_counts["excluded"]:
+        mode_assessment = "一部除外"
+    elif freshness_counts["stale"]:
+        mode_assessment = "一部参考扱い"
+    elif freshness_counts["caution"]:
+        mode_assessment = "一部遅延あり"
 
     tz = ZoneInfo(settings.timezone)
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "updated_at_jst": datetime.now(tz).replace(microsecond=0).isoformat(),
         "summary": {
             "gold_value_text": gold.get("value_text", "データ不足"),
@@ -173,6 +240,12 @@ def build_dashboard_payload(market_rows: list[dict]) -> tuple[dict, list[dict]]:
             "market_mode": mode,
             "primary_factor": mode["description"],
             "warning_signals": warnings,
+            "data_freshness": {
+                "label": "DATA FRESHNESS",
+                "summary_text": f"{len(indicators)}指標中 {old_count}指標が古い可能性",
+                "market_mode_assessment": mode_assessment,
+                "counts": freshness_counts,
+            },
         },
         "indicators": indicators,
         "reference_links": [

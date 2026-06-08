@@ -20,7 +20,7 @@ def test_dashboard_payload_shape_without_api_keys(monkeypatch):
     conn = db.connect(":memory:")
     try:
         payload = current_dashboard(conn)
-        assert payload["schema_version"] == 2
+        assert payload["schema_version"] == 3
         assert len(payload["indicators"]) == 7
         assert all(item["signal"] == "unknown" for item in payload["indicators"])
         assert "economic_events" not in payload
@@ -44,6 +44,6 @@ def test_old_snapshot_is_refreshed(monkeypatch):
             """,
             ("2026-01-01", "yellow", "中", "old", "old", json.dumps(old), db.utc_now()),
         )
-        assert current_dashboard(conn)["schema_version"] == 2
+        assert current_dashboard(conn)["schema_version"] == 3
     finally:
         conn.close()

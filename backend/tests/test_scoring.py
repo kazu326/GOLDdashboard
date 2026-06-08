@@ -36,6 +36,28 @@ def test_market_modes():
     assert detect_market_mode(_mode_rows(gold=-1, real_rate=-1, dxy=-1, sp500=1, vix=-1))["key"] == "neutral"
 
 
+def test_risk_off_dollar_buying_uses_core_three_changes_only():
+    mode = detect_market_mode(_mode_rows(gold=-1, dxy=1, vix=1, real_rate=None, sp500=None))
+    assert mode["key"] == "risk_off_dollar_buying"
+    assert mode["label"] == "リスクオフのドル買い優勢"
+
+
+def test_risk_off_dollar_buying_requires_gold_dxy_vix_changes():
+    assert detect_market_mode(_mode_rows(gold=-1, dxy=1, vix=None, real_rate=1))["key"] != "risk_off_dollar_buying"
+    assert detect_market_mode(_mode_rows(gold=-1, dxy=None, vix=1, real_rate=1))["key"] != "risk_off_dollar_buying"
+    assert detect_market_mode(_mode_rows(gold=None, dxy=1, vix=1, real_rate=1))["key"] != "risk_off_dollar_buying"
+
+
+def test_risk_off_dollar_buying_precedes_gold_headwind():
+    mode = detect_market_mode(_mode_rows(gold=-1, dxy=1, vix=1, real_rate=1, sp500=-1))
+    assert mode["key"] == "risk_off_dollar_buying"
+
+
+def test_correlation_break_remains_separate_from_risk_off_dollar_buying():
+    mode = detect_market_mode(_mode_rows(gold=1, dxy=1, vix=1, real_rate=1, sp500=-1))
+    assert mode["key"] == "correlation_break"
+
+
 def test_missing_change_is_unknown_not_neutral():
     rows = _mode_rows()
     rows["dxy"]["change_pct"] = None
@@ -51,7 +73,8 @@ def test_payload_is_schema_v2_without_news_keys():
     payload, indicators = build_dashboard_payload(
         [_indicator(key) for key in ("gold", "real_rate", "nominal_rate", "inflation_expectation", "dxy", "sp500", "vix")]
     )
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
+    assert "data_freshness" in payload["summary"]
     assert len(indicators) == 7
     assert [item["indicator_key"] for item in indicators] == [
         "gold",
@@ -64,3 +87,30 @@ def test_payload_is_schema_v2_without_news_keys():
     ]
     assert "economic_events" not in payload
     assert "geo_news" not in payload
+
+
+def test_payload_adds_risk_off_dollar_buying_warning():
+    rows = [_indicator(key) for key in ("gold", "real_rate", "nominal_rate", "inflation_expectation", "dxy", "sp500", "vix")]
+    for row in rows:
+        if row["indicator_key"] == "gold":
+            row["change_pct"] = -1
+        if row["indicator_key"] == "dxy":
+            row["change_pct"] = 1
+        if row["indicator_key"] == "vix":
+            row["change_pct"] = 1
+    payload, _indicators = build_dashboard_payload(rows)
+    assert payload["summary"]["market_mode"]["key"] == "risk_off_dollar_buying"
+    assert "リスクオフ下のドル買い優勢" in payload["summary"]["warning_signals"]
+
+
+def test_market_mode_ignores_excluded_sp500_for_risk_off_gold_buying():
+    rows = _mode_rows(gold=1, dxy=0, sp500=-1, vix=1)
+    rows["sp500"]["used_in_market_mode"] = False
+    assert detect_market_mode(rows)["key"] != "risk_off_gold_buying"
+
+
+def test_risk_off_dollar_buying_works_without_sp500_when_core_is_usable():
+    rows = _mode_rows(gold=-1, dxy=1, vix=1)
+    rows["sp500"]["used_in_market_mode"] = False
+    mode_rows = {key: row for key, row in rows.items() if row.get("used_in_market_mode", True)}
+    assert detect_market_mode(mode_rows)["key"] == "risk_off_dollar_buying"

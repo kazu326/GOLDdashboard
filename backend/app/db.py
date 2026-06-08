@@ -20,11 +20,15 @@ CREATE TABLE IF NOT EXISTS market_data_points (
   unit TEXT,
   as_of TEXT NOT NULL,
   source_name TEXT NOT NULL,
+  source_series TEXT NOT NULL DEFAULT '',
   source_url TEXT NOT NULL,
   quality TEXT NOT NULL,
   change_abs REAL,
   change_pct REAL,
   comment TEXT,
+  fetched_at TEXT NOT NULL DEFAULT '',
+  freshness_status TEXT NOT NULL DEFAULT 'fresh',
+  used_in_market_mode INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 
@@ -127,15 +131,36 @@ def session(db_path: str | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate_db(conn)
 
 
-def log_fetch(conn: sqlite3.Connection, provider: str, endpoint: str, status: str, error: str = "") -> None:
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _migrate_db(conn: sqlite3.Connection) -> None:
+    _ensure_column(conn, "market_data_points", "source_series", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "market_data_points", "fetched_at", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "market_data_points", "freshness_status", "TEXT NOT NULL DEFAULT 'fresh'")
+    _ensure_column(conn, "market_data_points", "used_in_market_mode", "INTEGER NOT NULL DEFAULT 1")
+
+
+def log_fetch(
+    conn: sqlite3.Connection,
+    provider: str,
+    endpoint: str,
+    status: str,
+    error: str = "",
+    fetched_at: str | None = None,
+) -> None:
     conn.execute(
         """
         INSERT INTO source_fetches(provider, endpoint, status, fetched_at, error_message)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (provider, endpoint, status, utc_now(), error),
+        (provider, endpoint, status, fetched_at or utc_now(), error),
     )
 
 
@@ -143,10 +168,10 @@ def insert_market_data(conn: sqlite3.Connection, item: NormalizedData) -> None:
     conn.execute(
         """
         INSERT INTO market_data_points(
-          indicator_key, label, value, unit, as_of, source_name, source_url, quality,
-          change_abs, change_pct, comment, created_at
+          indicator_key, label, value, unit, as_of, source_name, source_series, source_url, quality,
+          change_abs, change_pct, comment, fetched_at, freshness_status, used_in_market_mode, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             item.indicator_key,
@@ -155,11 +180,15 @@ def insert_market_data(conn: sqlite3.Connection, item: NormalizedData) -> None:
             item.unit,
             item.as_of,
             item.source_name,
+            item.source_series,
             item.source_url,
             item.quality,
             item.change_abs,
             item.change_pct,
             item.comment,
+            item.fetched_at,
+            item.freshness_status,
+            1 if item.used_in_market_mode else 0,
             utc_now(),
         ),
     )

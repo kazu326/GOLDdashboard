@@ -1,16 +1,27 @@
 import pytest
 from types import SimpleNamespace
 
-from app.collectors.market import AlphaVantageGoldAdapter, FredSeriesAdapter, adapter_groups
+from app.collectors.market import AlphaVantageGoldAdapter, FmpQuoteAdapter, FredSeriesAdapter, adapter_groups
 
 
 def test_fred_series_assignments():
     groups = adapter_groups()
-    assert isinstance(groups["real_rate"][0], FredSeriesAdapter)
-    assert groups["real_rate"][0].series_id == "DFII10"
-    assert groups["nominal_rate"][0].series_id == "DGS10"
-    assert groups["inflation_expectation"][0].series_id == "T10YIE"
-    assert groups["vix"][0].series_id == "VIXCLS"
+    real_rate = groups["real_rate"][0]
+    nominal_rate = groups["nominal_rate"][0]
+    inflation_expectation = groups["inflation_expectation"][0]
+    vix = groups["vix"][0]
+    assert isinstance(real_rate, FredSeriesAdapter)
+    assert isinstance(nominal_rate, FredSeriesAdapter)
+    assert isinstance(inflation_expectation, FredSeriesAdapter)
+    assert isinstance(vix, FredSeriesAdapter)
+    assert real_rate.series_id == "DFII10"
+    assert nominal_rate.series_id == "DGS10"
+    assert inflation_expectation.series_id == "T10YIE"
+    assert vix.series_id == "VIXCLS"
+    assert isinstance(groups["sp500"][0], FmpQuoteAdapter)
+    assert isinstance(groups["sp500"][1], FmpQuoteAdapter)
+    assert groups["sp500"][0].symbol == "^GSPC"
+    assert groups["sp500"][1].symbol == "SPY"
 
 
 def test_alpha_vantage_gold_uses_spot_and_daily_history(monkeypatch):
